@@ -81,15 +81,20 @@ speakly/
 
 ## API Keys
 
-Keys are injected at runtime via `op run --env-file=.env` using 1Password `op://` secret references. The `.env` file contains references (not values) and is gitignored.
+Secrets are managed via a **1Password service account** — no fingerprint prompts.
+
+- **Vault:** `Speakly` (dedicated vault with copies of the API keys)
+- **Service account:** "Speakly Local" — read-only access to the Speakly vault
+- **Token storage:** macOS keychain (`security find-generic-password -a speakly -s op-service-account-token -w`)
+- **Injection:** `OP_SERVICE_ACCOUNT_TOKEN=... op run --env-file=.env -- speakly "text"`
 
 | Env Var | 1Password Reference |
 |---------|-------------------|
-| `OPENAI_API_KEY` | `op://Employee/Brex CFO OpenAI/OPENAI_API_KEY` |
-| `ELEVEN_API_KEY` | `op://Engineering/Elevenlabs API key for local development/ELEVEN_API_KEY` |
-| `INWORLD_JWT_KEY` | `op://Employee/Inworld Local Personal API Key/JWT Key` |
-| `INWORLD_JWT_SECRET` | `op://Employee/Inworld Local Personal API Key/JWT Secret` |
-| `ANTHROPIC_API_KEY` | `op://Engineering/Anthropic AI/credential` |
+| `OPENAI_API_KEY` | `op://Speakly/OpenAI/OPENAI_API_KEY` |
+| `ELEVEN_API_KEY` | `op://Speakly/ElevenLabs/ELEVEN_API_KEY` |
+| `INWORLD_JWT_KEY` | `op://Speakly/Inworld/INWORLD_JWT_KEY` |
+| `INWORLD_JWT_SECRET` | `op://Speakly/Inworld/INWORLD_JWT_SECRET` |
+| `ANTHROPIC_API_KEY` | `op://Speakly/Anthropic/ANTHROPIC_API_KEY` |
 
 ## Future Ideas
 
