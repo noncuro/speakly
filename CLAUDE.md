@@ -14,14 +14,15 @@ Text-to-speech mini-player — converts text to speech via multiple TTS provider
 ## Commands
 
 ```bash
-uv run speakly "text to speak"                # Speak text
-uv run speakly --provider elevenlabs          # Use specific provider
-uv run speakly --voice nova                   # Specify voice
-uv run speakly --speed 2.0                    # Set playback speed
-uv run speakly --file doc.txt                 # Read from file
-uv run speakly                                # Read from clipboard (pbpaste)
-uv run speakly --list-voices                  # List voices for a provider
-uv sync                                       # Install dependencies
+# All commands use op run to inject secrets from 1Password
+op run --env-file=.env -- uv run speakly "text to speak"          # Speak text
+op run --env-file=.env -- uv run speakly --provider elevenlabs    # Use specific provider
+op run --env-file=.env -- uv run speakly --voice nova             # Specify voice
+op run --env-file=.env -- uv run speakly --speed 2.0              # Set playback speed
+op run --env-file=.env -- uv run speakly --file doc.txt           # Read from file
+op run --env-file=.env -- uv run speakly                          # Read from clipboard
+op run --env-file=.env -- uv run speakly --list-voices            # List voices
+uv sync                                                            # Install dependencies
 ```
 
 ## Architecture
@@ -80,11 +81,15 @@ speakly/
 
 ## API Keys
 
-Keys stored in 1Password. Populate `.env` before use:
-- `OPENAI_API_KEY` — "Brex CFO OpenAI" in Employee vault
-- `ELEVEN_API_KEY` — "Elevenlabs API key for local development" in Engineering vault
-- `INWORLD_JWT_KEY` / `INWORLD_JWT_SECRET` — "Inworld Local Personal API Key" in Employee vault
-- `ANTHROPIC_API_KEY` — for title generation
+Keys are injected at runtime via `op run --env-file=.env` using 1Password `op://` secret references. The `.env` file contains references (not values) and is gitignored.
+
+| Env Var | 1Password Reference |
+|---------|-------------------|
+| `OPENAI_API_KEY` | `op://Employee/Brex CFO OpenAI/OPENAI_API_KEY` |
+| `ELEVEN_API_KEY` | `op://Engineering/Elevenlabs API key for local development/ELEVEN_API_KEY` |
+| `INWORLD_JWT_KEY` | `op://Employee/Inworld Local Personal API Key/JWT Key` |
+| `INWORLD_JWT_SECRET` | `op://Employee/Inworld Local Personal API Key/JWT Secret` |
+| `ANTHROPIC_API_KEY` | `op://Engineering/Anthropic AI/credential` |
 
 ## Future Ideas
 
