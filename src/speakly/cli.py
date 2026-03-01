@@ -33,9 +33,9 @@ def _get_clipboard() -> str:
 @app.callback(invoke_without_command=True)
 def main(
     text: Optional[str] = typer.Argument(None, help="Text to speak"),
-    provider: str = typer.Option("openai", "--provider", "-p", help="TTS provider"),
+    provider: str = typer.Option("inworld", "--provider", "-p", help="TTS provider"),
     voice: str = typer.Option("", "--voice", "-v", help="Voice name/ID"),
-    speed: float = typer.Option(1.0, "--speed", "-s", help="Playback speed"),
+    speed: float = typer.Option(2.0, "--speed", "-s", help="Playback speed"),
     file: Optional[Path] = typer.Option(None, "--file", "-f", help="Read text from file"),
     list_voices_flag: bool = typer.Option(False, "--list-voices", help="List available voices"),
 ):
