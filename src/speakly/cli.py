@@ -131,6 +131,9 @@ def main(
         raise typer.Exit(1)
 
     text = sanitize(text)
+    if not text:
+        typer.echo("Text became empty after sanitization (e.g. input was only URLs or images).", err=True)
+        raise typer.Exit(1)
 
     initial_title = text[:60] + ("..." if len(text) > 60 else "")
 

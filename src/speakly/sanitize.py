@@ -52,6 +52,6 @@ def sanitize(text: str) -> str:
     # Collapse multiple blank lines into one
     text = re.sub(r"\n{3,}", "\n\n", text)
 
-    # Remove leading/trailing whitespace per line, then overall
+    # Remove trailing whitespace per line, then leading/trailing whitespace overall
     text = "\n".join(line.rstrip() for line in text.splitlines())
     return text.strip()
