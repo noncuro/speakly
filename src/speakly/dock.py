@@ -34,10 +34,9 @@ def configure_dock_icon() -> None:
     if sys.platform != "darwin":
         return
     try:
-        from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, QRect, QRectF, Qt
+        from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, QPointF, QRect, QRectF, Qt
         from PyQt6.QtGui import (
             QColor,
-            QConicalGradient,
             QLinearGradient,
             QPainter,
             QPainterPath,
@@ -50,55 +49,56 @@ def configure_dock_icon() -> None:
         pixmap.fill(QColor(0, 0, 0, 0))
 
         painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # --- Background: Catppuccin blue gradient rounded square ---
-        bg_path = QPainterPath()
-        bg_path.addRoundedRect(QRectF(0, 0, size, size), 100, 100)
+            # --- Background: Catppuccin blue gradient rounded square ---
+            bg_path = QPainterPath()
+            bg_path.addRoundedRect(QRectF(0, 0, size, size), 100, 100)
 
-        gradient = QLinearGradient(QPoint(0, 0), QPoint(size, size))
-        gradient.setColorAt(0.0, QColor("#89b4fa"))  # Catppuccin blue
-        gradient.setColorAt(1.0, QColor("#74c7ec"))  # Catppuccin sapphire
-        painter.setBrush(gradient)
-        painter.setPen(QPen(QColor(0, 0, 0, 0)))
-        painter.drawPath(bg_path)
+            gradient = QLinearGradient(QPointF(0, 0), QPointF(size, size))
+            gradient.setColorAt(0.0, QColor("#89b4fa"))  # Catppuccin blue
+            gradient.setColorAt(1.0, QColor("#74c7ec"))  # Catppuccin sapphire
+            painter.setBrush(gradient)
+            painter.setPen(QPen(QColor(0, 0, 0, 0)))
+            painter.drawPath(bg_path)
 
-        # --- Speaker body (white) ---
-        white = QColor("#ffffff")
-        painter.setBrush(white)
-        painter.setPen(QPen(QColor(0, 0, 0, 0)))
+            # --- Speaker body (white) ---
+            white = QColor("#ffffff")
+            painter.setBrush(white)
+            painter.setPen(QPen(QColor(0, 0, 0, 0)))
 
-        # Speaker rectangle (left part)
-        speaker_path = QPainterPath()
-        sx, sy = 130, 190
-        sw, sh = 70, 132
-        speaker_path.addRect(QRectF(sx, sy, sw, sh))
+            # Speaker rectangle (left part)
+            speaker_path = QPainterPath()
+            sx, sy = 130, 190
+            sw, sh = 70, 132
+            speaker_path.addRect(QRectF(sx, sy, sw, sh))
 
-        # Speaker cone (trapezoid via polygon)
-        cone_path = QPainterPath()
-        cone_path.moveTo(sx + sw, sy)
-        cone_path.lineTo(sx + sw + 100, sy - 60)
-        cone_path.lineTo(sx + sw + 100, sy + sh + 60)
-        cone_path.lineTo(sx + sw, sy + sh)
-        cone_path.closeSubpath()
+            # Speaker cone (trapezoid via polygon)
+            cone_path = QPainterPath()
+            cone_path.moveTo(sx + sw, sy)
+            cone_path.lineTo(sx + sw + 100, sy - 60)
+            cone_path.lineTo(sx + sw + 100, sy + sh + 60)
+            cone_path.lineTo(sx + sw, sy + sh)
+            cone_path.closeSubpath()
 
-        painter.drawPath(speaker_path)
-        painter.drawPath(cone_path)
+            painter.drawPath(speaker_path)
+            painter.drawPath(cone_path)
 
-        # --- Sound wave arcs ---
-        pen = QPen(white, 22)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
-        painter.setBrush(QColor(0, 0, 0, 0))
+            # --- Sound wave arcs ---
+            pen = QPen(white, 22)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.setBrush(QColor(0, 0, 0, 0))
 
-        cx = sx + sw + 100  # arc center x (tip of cone)
-        cy = sy + sh // 2   # arc center y
+            cx = sx + sw + 100  # arc center x (tip of cone)
+            cy = sy + sh // 2   # arc center y
 
-        for i, radius in enumerate([70, 120, 170]):
-            rect = QRect(cx - radius, cy - radius, radius * 2, radius * 2)
-            painter.drawArc(rect, -45 * 16, 90 * 16)  # 90° arc centered on right
-
-        painter.end()
+            for i, radius in enumerate([70, 120, 170]):
+                rect = QRect(cx - radius, cy - radius, radius * 2, radius * 2)
+                painter.drawArc(rect, -45 * 16, 90 * 16)  # 90° arc centered on right
+        finally:
+            painter.end()
 
         # --- Convert QPixmap → PNG bytes → NSImage → Dock icon ---
         buf = QBuffer()
