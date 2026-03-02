@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -10,6 +11,15 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+
+# Debug logging to file
+logging.basicConfig(
+    filename="/tmp/speakly-debug.log",
+    level=logging.DEBUG,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    force=True,
+)
+log = logging.getLogger("speakly.cli")
 
 from speakly import bench
 
@@ -32,8 +42,7 @@ except ImportError:
 
 from speakly.cache import cache_path, evict_old, get_cached
 from speakly.config import load_config
-from speakly.progressive_core import PROGRESSIVE_MIN_CHARS, ProgressiveCallbacks, ProgressiveOrchestrator
-from speakly.progressive_inworld import InworldProgressiveAdapter
+from speakly.progressive_core import PROGRESSIVE_MIN_CHARS, ProgressiveAdapter, ProgressiveCallbacks, ProgressiveOrchestrator
 from speakly.titler import generate_title
 
 app = typer.Typer(
@@ -131,11 +140,21 @@ def main(
 
     initial_title = text[:60] + ("..." if len(text) > 60 else "")
 
+    log.info("=== Speakly invocation ===")
+    log.info("Provider: %s | Voice: %s | Speed: %s", provider, voice, speed)
+    log.info("Text length: %d chars", len(text))
+    log.info("Text preview: %.120s", text)
+
     # Check cache before launching player
     cached = get_cached(text, provider, voice or "default")
+    log.info("Cache hit: %s (path: %s)", bool(cached), cached)
     bench.mark("cache_check", hit=bool(cached), provider=provider)
     progressive = _should_use_progressive(provider=provider, text=text, cached_path=cached)
     prog_mode = os.environ.get("SPEAKLY_PROGRESSIVE_MODE", "auto")
+    log.info(
+        "Progressive decision: %s (mode=%s, provider=%s, len=%d, min=%d, cached=%s)",
+        progressive, prog_mode, provider, len(text), PROGRESSIVE_MIN_CHARS, bool(cached),
+    )
     bench.mark("progressive_decision", mode=prog_mode, progressive=progressive)
 
     # Launch player immediately — with audio if cached, in loading state if not
@@ -156,38 +175,56 @@ def _should_use_progressive(provider: str, text: str, cached_path: Path | None) 
     mode = os.environ.get("SPEAKLY_PROGRESSIVE_MODE", "auto")
     if mode == "off":
         return False
+    if cached_path is not None:
+        return False
     if mode == "on":
-        return provider == "inworld" and cached_path is None  # skip length check
-    # auto: existing logic
-    return provider == "inworld" and cached_path is None and len(text) >= PROGRESSIVE_MIN_CHARS
+        return True
+    # auto: progressive for long text
+    return len(text) >= PROGRESSIVE_MIN_CHARS
 
 
 def _generate_audio(provider: str, voice: str | None, speed: float, text: str, player):
     """Run TTS generation in background thread, then signal player."""
     try:
+        log.info("_generate_audio: starting non-progressive synthesis (provider=%s)", provider)
         bench.mark("synthesis_start", provider=provider)
         p = get_provider(provider)
         path = cache_path(text, provider, voice or "default")
         p.synthesize(text, voice, speed, path)
+        log.info("_generate_audio: synthesis complete, signalling player (path=%s)", path)
         bench.mark("synthesis_complete", provider=provider)
         player.load_audio(path)
     except Exception as e:
-        # Update title to show error
+        log.error("_generate_audio: error: %s", e)
         player.update_title(f"Error: {e}")
 
     evict_old()
 
 
+def _get_progressive_adapter(provider: str) -> ProgressiveAdapter:
+    """Return the progressive adapter for the given provider."""
+    if provider == "edge":
+        from speakly.progressive_edge import EdgeProgressiveAdapter
+        return EdgeProgressiveAdapter()
+    if provider == "openai":
+        from speakly.progressive_openai import OpenAIProgressiveAdapter
+        return OpenAIProgressiveAdapter()
+    if provider == "elevenlabs":
+        from speakly.progressive_elevenlabs import ElevenLabsProgressiveAdapter
+        return ElevenLabsProgressiveAdapter()
+    if provider == "inworld":
+        from speakly.progressive_inworld import InworldProgressiveAdapter
+        return InworldProgressiveAdapter()
+    raise ValueError(f"No progressive adapter for provider '{provider}'")
+
+
 def _generate_audio_progressive(provider: str, voice: str | None, speed: float, text: str, player):
     """Run progressive synthesis and stream chunks into the player."""
     try:
-        if provider != "inworld":
-            _generate_audio(provider, voice, speed, text, player)
-            return
-
+        log.info("_generate_audio_progressive: called (provider=%s)", provider)
         bench.mark("progressive_start", provider=provider)
         output_path = cache_path(text, provider, voice or "default")
-        adapter = InworldProgressiveAdapter()
+        adapter = _get_progressive_adapter(provider)
         callbacks = ProgressiveCallbacks(
             on_chunk_ready=player.queue_chunk,
             on_status=player.set_progressive_status,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import random
 import re
 import shutil
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 import httpx
+
+log = logging.getLogger("speakly.progressive")
 
 PROGRESSIVE_MIN_CHARS = 800
 FIRST_CHUNK_TARGET_CHARS = 320
@@ -231,6 +234,9 @@ class ProgressiveOrchestrator:
             next_target=self.next_target,
             max_chars=self.adapter.max_chunk_chars(),
         )
+        log.info("Progressive run: %d chunks from %d chars", len(chunks), len(self.text))
+        for i, c in enumerate(chunks):
+            log.debug("  chunk[%d]: %d chars — %.80s", i, len(c), c)
         if not chunks:
             self.callbacks.on_error("No text chunks were produced.")
             return
@@ -330,16 +336,20 @@ class ProgressiveOrchestrator:
     def _emit_ready(self, index: int, result: _SynthResult) -> Path:
         chunk_path = self.parts_dir / f"chunk{index:04d}.mp3"
         chunk_path.write_bytes(result.audio)
+        log.info("Emitting chunk %d (%d bytes) → %s", index, len(result.audio), chunk_path)
         self.callbacks.on_chunk_ready(chunk_path)
         return chunk_path
 
     def _synthesize_with_retries(self, index: int, text: str) -> _SynthResult:
         saw_rate_limit = False
         last_exc: Exception | None = None
+        log.info("Synthesizing chunk %d (%d chars)", index, len(text))
 
         for attempt in range(self.max_retries + 1):
             try:
+                t0 = time.monotonic()
                 audio = self.adapter.synthesize_chunk(text, self.voice, self.speed)
+                log.info("Chunk %d synthesized in %.2fs (%d bytes)", index, time.monotonic() - t0, len(audio))
                 return _SynthResult(index=index, audio=audio, saw_rate_limit=saw_rate_limit)
             except Exception as exc:  # noqa: PERF203 - retry loop
                 last_exc = exc
@@ -381,7 +391,7 @@ def _format_exception(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
         if code in {401, 403}:
-            return "Authentication failed for Inworld credentials."
+            return "Authentication failed. Check your API key / credentials."
         return f"HTTP {code} from TTS provider."
     return str(exc)
 
