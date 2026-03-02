@@ -35,6 +35,7 @@ except ImportError:
 
 from speakly.cache import cache_path, evict_old, get_cached
 from speakly.config import load_config
+from speakly.sanitize import sanitize
 from speakly.progressive_core import PROGRESSIVE_MIN_CHARS, ProgressiveAdapter, ProgressiveCallbacks, ProgressiveOrchestrator
 from speakly.titler import generate_title
 
@@ -129,6 +130,11 @@ def main(
         text = _get_clipboard()
     if not text:
         typer.echo("No text provided. Pass text as argument, --file, or copy to clipboard.", err=True)
+        raise typer.Exit(1)
+
+    text = sanitize(text)
+    if not text:
+        typer.echo("Text became empty after sanitization (e.g. input was only URLs or images).", err=True)
         raise typer.Exit(1)
 
     initial_title = text[:60] + ("..." if len(text) > 60 else "")
