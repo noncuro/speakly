@@ -163,11 +163,16 @@ def main(
     )
 
 
+_PROGRESSIVE_PROVIDERS = {"edge", "openai", "elevenlabs", "inworld"}
+
+
 def _should_use_progressive(provider: str, text: str, cached_path: Path | None) -> bool:
     mode = os.environ.get("SPEAKLY_PROGRESSIVE_MODE", "auto")
     if mode == "off":
         return False
     if cached_path is not None:
+        return False
+    if provider not in _PROGRESSIVE_PROVIDERS:
         return False
     if mode == "on":
         return True
