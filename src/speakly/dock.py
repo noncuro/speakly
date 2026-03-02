@@ -34,7 +34,7 @@ def configure_dock_icon() -> None:
     if sys.platform != "darwin":
         return
     try:
-        from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, QRect, QRectF
+        from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, QRect, QRectF, Qt
         from PyQt6.QtGui import (
             QColor,
             QConicalGradient,
@@ -87,7 +87,7 @@ def configure_dock_icon() -> None:
 
         # --- Sound wave arcs ---
         pen = QPen(white, 22)
-        pen.setCapStyle(pen.capStyle().RoundCap)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
         painter.setBrush(QColor(0, 0, 0, 0))
 
