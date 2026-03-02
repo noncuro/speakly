@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from pathlib import Path
 
+from speakly import bench
 from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
@@ -132,11 +133,13 @@ class MiniPlayer(QMainWindow):
         initial_speed: float = 1.0,
         audio_path: Path | None = None,
         progressive_mode: bool = False,
+        bench_exit: bool = False,
     ):
         super().__init__()
         self._drag_pos = None
         self._loading = audio_path is None
         self._progressive_mode = progressive_mode
+        self._bench_exit = bench_exit
         self._progressive_done_flag = False
         self._progressive_failed = False
         self._final_audio_loaded = False
@@ -304,6 +307,8 @@ class MiniPlayer(QMainWindow):
         if self._progressive_mode:
             return
 
+        bench.mark_first_audio()
+
         self._loading = False
         self._status_label.hide()
         self._progress.hide()
@@ -321,6 +326,9 @@ class MiniPlayer(QMainWindow):
         self._player.setPlaybackRate(SPEEDS[self._speed_index])
         self._player.play()
 
+        if self._bench_exit:
+            self._emit_bench_summary_and_exit()
+
     @pyqtSlot(str)
     def _on_chunk_ready(self, path_str: str):
         if not self._progressive_mode:
@@ -328,10 +336,13 @@ class MiniPlayer(QMainWindow):
             return
 
         if self._loading:
+            bench.mark_first_audio()
             self._loading = False
             self._set_controls_enabled(True)
             self._load_and_play(path_str)
             self._set_status_text("Live generation mode")
+            if self._bench_exit:
+                self._emit_bench_summary_and_exit()
             return
 
         if self._waiting_for_chunk and self._player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
@@ -404,6 +415,7 @@ class MiniPlayer(QMainWindow):
     def _switch_to_final_audio(self):
         if not self._progressive_mode or not self._final_audio_path:
             return
+        bench.mark("final_audio_switch")
         self._player.setSource(QUrl.fromLocalFile(self._final_audio_path))
         self._player.setPlaybackRate(SPEEDS[self._speed_index])
         self._final_audio_loaded = True
@@ -432,7 +444,18 @@ class MiniPlayer(QMainWindow):
             return
 
         self._waiting_for_chunk = True
+        bench.mark("buffering_wait")
         self._set_status_text("Buffering next chunk...")
+
+    def _emit_bench_summary_and_exit(self):
+        """Emit JSON summary and quit (--bench-exit mode)."""
+        first_audio = bench.get_first_audio_time()
+        bench.summary_json(
+            first_audio_s=round(first_audio, 3) if first_audio else None,
+            total_s=round(bench.elapsed(), 3),
+            progressive=self._progressive_mode,
+        )
+        QTimer.singleShot(100, self.close)
 
     def _toggle_play(self):
         if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:

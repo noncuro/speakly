@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+
+from speakly import bench
 
 # Import providers to trigger registration
 from speakly.providers import get_provider
@@ -89,7 +92,10 @@ def main(
     speed: Optional[float] = typer.Option(None, "--speed", "-s", help="Playback speed"),
     file: Optional[Path] = typer.Option(None, "--file", "-f", help="Read text from file"),
     list_voices_flag: bool = typer.Option(False, "--list-voices", help="List available voices"),
+    bench_exit: bool = typer.Option(False, "--bench-exit", hidden=True, help="Auto-quit after first play (benchmark mode)"),
 ):
+    bench.mark("process_start")
+
     if ctx.invoked_subcommand is not None:
         return
 
@@ -106,6 +112,7 @@ def main(
     provider = provider or cfg.provider
     voice = voice if voice is not None else cfg.voice
     speed = speed if speed is not None else cfg.speed
+    bench.mark("config_loaded")
 
     if list_voices_flag:
         p = get_provider(provider)
@@ -126,7 +133,10 @@ def main(
 
     # Check cache before launching player
     cached = get_cached(text, provider, voice or "default")
+    bench.mark("cache_check", hit=bool(cached), provider=provider)
     progressive = _should_use_progressive(provider=provider, text=text, cached_path=cached)
+    prog_mode = os.environ.get("SPEAKLY_PROGRESSIVE_MODE", "auto")
+    bench.mark("progressive_decision", mode=prog_mode, progressive=progressive)
 
     # Launch player immediately — with audio if cached, in loading state if not
     _launch_player(
@@ -138,19 +148,28 @@ def main(
         voice=voice,
         llm=cfg.llm,
         progressive=progressive,
+        bench_exit=bench_exit,
     )
 
 
 def _should_use_progressive(provider: str, text: str, cached_path: Path | None) -> bool:
+    mode = os.environ.get("SPEAKLY_PROGRESSIVE_MODE", "auto")
+    if mode == "off":
+        return False
+    if mode == "on":
+        return provider == "inworld" and cached_path is None  # skip length check
+    # auto: existing logic
     return provider == "inworld" and cached_path is None and len(text) >= PROGRESSIVE_MIN_CHARS
 
 
 def _generate_audio(provider: str, voice: str | None, speed: float, text: str, player):
     """Run TTS generation in background thread, then signal player."""
     try:
+        bench.mark("synthesis_start", provider=provider)
         p = get_provider(provider)
         path = cache_path(text, provider, voice or "default")
         p.synthesize(text, voice, speed, path)
+        bench.mark("synthesis_complete", provider=provider)
         player.load_audio(path)
     except Exception as e:
         # Update title to show error
@@ -166,12 +185,13 @@ def _generate_audio_progressive(provider: str, voice: str | None, speed: float, 
             _generate_audio(provider, voice, speed, text, player)
             return
 
+        bench.mark("progressive_start", provider=provider)
         output_path = cache_path(text, provider, voice or "default")
         adapter = InworldProgressiveAdapter()
         callbacks = ProgressiveCallbacks(
             on_chunk_ready=player.queue_chunk,
             on_status=player.set_progressive_status,
-            on_done=player.mark_progressive_done,
+            on_done=lambda p: (bench.mark("progressive_done"), player.mark_progressive_done(p)),
             on_error=player.set_progressive_error,
         )
         orchestrator = ProgressiveOrchestrator(
@@ -199,6 +219,7 @@ def _launch_player(
     voice: str | None,
     llm: str = "none",
     progressive: bool = False,
+    bench_exit: bool = False,
 ):
     from PyQt6.QtWidgets import QApplication
     from speakly.player import MiniPlayer
@@ -209,6 +230,7 @@ def _launch_player(
         initial_speed=speed,
         audio_path=audio_path,
         progressive_mode=progressive and audio_path is None,
+        bench_exit=bench_exit,
     )
 
     # Generate title in background
@@ -225,4 +247,5 @@ def _launch_player(
         thread.start()
 
     player.show()
+    bench.mark("player_shown")
     sys.exit(qt_app.exec())
