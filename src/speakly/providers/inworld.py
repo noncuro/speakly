@@ -34,7 +34,14 @@ class InworldProvider:
         encoded = base64.b64encode(credentials.encode()).decode()
         return f"Basic {encoded}"
 
+    def _validate_credentials(self) -> None:
+        if not self._jwt_key or not self._jwt_secret:
+            raise ValueError(
+                "INWORLD_JWT_KEY/INWORLD_JWT_SECRET not set. Run 'speakly config' to configure them."
+            )
+
     def synthesize(self, text: str, voice: str, speed: float, output_path: Path) -> Path:
+        self._validate_credentials()
         voice = voice or self.DEFAULT_VOICE
 
         # Resolve voice name to ID if needed
@@ -107,6 +114,7 @@ class InworldProvider:
         raise ValueError(f"Inworld voice '{name}' not found. Available: {[v['displayName'] for v in voices]}")
 
     def _fetch_voices(self) -> list[dict]:
+        self._validate_credentials()
         with httpx.Client(timeout=30) as client:
             resp = client.get(
                 f"{API_BASE}/tts/v1/voices",

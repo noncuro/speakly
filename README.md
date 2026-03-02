@@ -100,6 +100,28 @@ Then: select text anywhere, copy it (Cmd+C), press your shortcut -- Speakly read
 
 Some apps that support macOS accessibility services (Safari, Notes, TextEdit, VS Code) let the shortcut grab selected text directly, skipping the copy step.
 
+## Performance
+
+Synthesis latency measured on macOS (headless, no UI overhead). The player window itself appears instantly (<150ms) regardless of provider.
+
+| Provider | Text | 1st Audio | Total |
+|----------|------|----------:|------:|
+| **edge** | short (~200 chars) | — | **0.9s** |
+| edge | medium (~900 chars) | — | 1.2s |
+| edge | long (~2400 chars) | — | 1.8s |
+| elevenlabs | short | — | 1.6s |
+| elevenlabs | medium | — | 8.6s |
+| elevenlabs | long | — | 20.1s |
+| openai | short | — | 4.9s |
+| openai | medium | — | 14.0s |
+| openai | long | — | 40.0s |
+| inworld | short | — | 3.3s |
+| inworld | medium | — | 5.3s |
+| inworld | long | — | 10.1s |
+| **inworld** (progressive) | long | **4.1s** | 8.8s |
+
+Edge is the fastest provider overall. For premium voices on longer texts, Inworld with progressive chunked playback starts audio **60% faster** -- you hear the first chunk in ~4s instead of waiting ~10s for full synthesis.
+
 ## How It Works
 
 Text goes to edge-tts (or your chosen provider), comes back as MP3, and gets cached in `~/.speakly/cache/`. The player window appears instantly in a loading state while TTS generates in the background. On a cache hit, playback starts immediately with no waiting.
