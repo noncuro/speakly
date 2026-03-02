@@ -23,8 +23,5 @@ if [ -z "$TEXT" ]; then
     exit 1
 fi
 
-# Load service account token from keychain (no fingerprint prompt)
-export OP_SERVICE_ACCOUNT_TOKEN=$(security find-generic-password -a speakly -s op-service-account-token -w)
-
-# Launch speakly in background (op run injects secrets from 1Password)
-nohup op run --env-file="$HOME/Documents/GitHub/speakly/.env" -- uv run --project "$HOME/Documents/GitHub/speakly" speakly "$TEXT" > /tmp/speakly.log 2>&1 &
+# Launch speakly in background (API keys loaded from keychain via keyring)
+nohup uv run --project "$HOME/Documents/GitHub/speakly" speakly "$TEXT" > /tmp/speakly.log 2>&1 &

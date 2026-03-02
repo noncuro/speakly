@@ -360,6 +360,11 @@ class MiniPlayer(QMainWindow):
     def mouseReleaseEvent(self, event: QMouseEvent):
         self._drag_pos = None
 
+    def closeEvent(self, event):
+        self._player.stop()
+        from PyQt6.QtWidgets import QApplication
+        QApplication.instance().quit()
+
     def update_title(self, title: str):
         """Thread-safe title update — emits signal to update on GUI thread."""
         self.title_updated.emit(title)

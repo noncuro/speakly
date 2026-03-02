@@ -21,8 +21,13 @@ class InworldProvider:
     DEFAULT_VOICE = "Alex"
 
     def __init__(self):
-        self._jwt_key = os.environ.get("INWORLD_JWT_KEY", "")
-        self._jwt_secret = os.environ.get("INWORLD_JWT_SECRET", "")
+        try:
+            from speakly.config import get_api_key
+            self._jwt_key = get_api_key("INWORLD_JWT_KEY") or ""
+            self._jwt_secret = get_api_key("INWORLD_JWT_SECRET") or ""
+        except Exception:
+            self._jwt_key = os.environ.get("INWORLD_JWT_KEY", "")
+            self._jwt_secret = os.environ.get("INWORLD_JWT_SECRET", "")
 
     def _get_auth_header(self) -> str:
         credentials = f"{self._jwt_key}:{self._jwt_secret}"

@@ -2,14 +2,34 @@
 name = "speakly"
 version = "0.1.0"
 description = "Text-to-speech mini-player with floating controls"
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.11"
+authors = [{name = "Daniel Cahn"}]
+keywords = ["tts", "text-to-speech", "audio", "player", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: MacOS X",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
 dependencies = [
     "pyqt6>=6.7",
     "typer>=0.12",
     "httpx>=0.27",
-    "anthropic>=0.40",
-    "openai>=1.50",
+    "edge-tts>=7.0",
+    "keyring>=25.0",
+    "rich>=13.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/noncuro/speakly"
+Repository = "https://github.com/noncuro/speakly"
+Issues = "https://github.com/noncuro/speakly/issues"
 
 [project.scripts]
 speakly = "speakly.cli:app"

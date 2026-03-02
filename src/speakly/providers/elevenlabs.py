@@ -21,7 +21,11 @@ class ElevenLabsProvider:
     DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
 
     def __init__(self):
-        self._api_key = os.environ.get("ELEVEN_API_KEY", "")
+        try:
+            from speakly.config import get_api_key
+            self._api_key = get_api_key("ELEVEN_API_KEY") or ""
+        except Exception:
+            self._api_key = os.environ.get("ELEVEN_API_KEY", "")
 
     def synthesize(self, text: str, voice: str, speed: float, output_path: Path) -> Path:
         voice_id = voice if self._looks_like_id(voice) else self._resolve_voice_name(voice)

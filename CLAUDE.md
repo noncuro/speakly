@@ -8,35 +8,36 @@ Text-to-speech mini-player — converts text to speech via multiple TTS provider
 - **Package manager**: uv
 - **CLI framework**: Typer
 - **GUI**: PyQt6 (QMediaPlayer + floating window)
-- **TTS providers**: OpenAI, ElevenLabs, Inworld
-- **Title generation**: Anthropic Claude Haiku
-- **Secrets**: 1Password service account via `op run`
+- **TTS providers**: edge-tts (free default), OpenAI, ElevenLabs, Inworld
+- **Title generation**: Anthropic or OpenAI via raw httpx (optional), heuristic fallback
+- **Secrets**: macOS Keychain via `keyring`, or environment variables
 
 ## Commands
 
 ```bash
-# All commands use op run to inject secrets from 1Password
-op run --env-file=.env -- uv run speakly "text to speak"          # Speak text
-op run --env-file=.env -- uv run speakly --provider openai        # Use specific provider
-op run --env-file=.env -- uv run speakly --voice nova             # Specify voice
-op run --env-file=.env -- uv run speakly --speed 1.5              # Set playback speed
-op run --env-file=.env -- uv run speakly --file doc.txt           # Read from file
-op run --env-file=.env -- uv run speakly                          # Read from clipboard
-op run --env-file=.env -- uv run speakly --list-voices            # List voices
-uv sync                                                            # Install dependencies
+uv run speakly "text to speak"          # Speak text (free edge-tts, no API key)
+uv run speakly --provider inworld       # Use specific provider
+uv run speakly --voice nova             # Specify voice
+uv run speakly --speed 1.5              # Set playback speed
+uv run speakly --file doc.txt           # Read from file
+uv run speakly                          # Read from clipboard
+uv run speakly --list-voices            # List voices
+uv run speakly config                   # Interactive config setup
+uv sync                                 # Install dependencies
 ```
 
-Default provider is Inworld at 2x speed.
+Default provider is edge-tts at 1x speed. Run `speakly config` to change defaults.
 
 ## Architecture
 
-**Flow:** Raycast hotkey / CLI → player shows instantly (loading state) → TTS in background → auto-play when ready
+**Flow:** Keyboard shortcut / CLI → player shows instantly (loading state) → TTS in background → auto-play when ready
 
 - **Instant player**: Window appears immediately with loading indicator; TTS runs in background thread
 - **File-then-play**: Audio saved to cache file, then played with `QMediaPlayer` for pause/resume/scrub/speed
 - **Caching**: Audio cached by SHA256 of (text + provider + voice) in `~/.speakly/cache/`, 7-day eviction
-- **Title generation**: Haiku LLM call fired in parallel with TTS, title swaps in when ready
+- **Title generation**: LLM call (if configured) fired in parallel with TTS, heuristic fallback if no LLM key
 - **Cache hits**: Player opens and plays immediately — no loading state
+- **Config**: `~/.speakly/config.toml` for preferences, `keyring` for API keys
 
 ## Project Structure
 
@@ -45,16 +46,19 @@ speakly/
 ├── src/speakly/
 │   ├── __init__.py
 │   ├── cli.py              # Typer CLI entrypoint + orchestration
+│   ├── config.py           # Config loading/saving, keyring API key management
+│   ├── config_tui.py       # Interactive config TUI (rich prompts)
 │   ├── providers/
 │   │   ├── __init__.py     # TTSProvider protocol + decorator registry
-│   │   ├── openai.py       # OpenAI TTS (tts-1-hd, 4096-char chunking)
+│   │   ├── edge.py         # edge-tts (free, no API key, default)
+│   │   ├── openai.py       # OpenAI TTS (tts-1-hd, raw httpx, 4096-char chunking)
 │   │   ├── elevenlabs.py   # ElevenLabs (eleven_multilingual_v2)
 │   │   └── inworld.py      # Inworld TTS 1.5 Max (2000-char chunking)
 │   ├── player.py           # PyQt6 floating mini-player (always-on-top, dark theme)
-│   ├── titler.py           # Background thread Haiku title generation
+│   ├── titler.py           # Multi-LLM title gen (Anthropic/OpenAI via httpx, heuristic fallback)
 │   └── cache.py            # SHA256-based audio file caching
 ├── pyproject.toml
-├── .env                    # 1Password op:// references (gitignored)
+├── LICENSE
 ├── .gitignore
 ├── README.md
 └── CLAUDE.md
@@ -72,33 +76,32 @@ speakly/
 
 ## Provider Notes
 
-| Provider | Model | Speed Range | Voice Default |
-|----------|-------|-------------|---------------|
-| OpenAI | tts-1-hd | 0.25-4.0x | nova |
-| ElevenLabs | eleven_multilingual_v2 | 1x only (use player speed) | Rachel |
-| Inworld | inworld-tts-1.5-max | player speed only | Alex |
+| Provider | Model | Speed Range | Voice Default | API Key |
+|----------|-------|-------------|---------------|---------|
+| edge (default) | Microsoft Edge TTS | player speed only | en-US-AriaNeural | None needed |
+| OpenAI | tts-1-hd | 0.25-4.0x | nova | Required |
+| ElevenLabs | eleven_multilingual_v2 | 1x only (use player speed) | Rachel | Required |
+| Inworld | inworld-tts-1.5-max | player speed only | Alex | Required |
 
+- All providers use raw httpx — no SDK dependencies
 - OpenAI chunks text at 4096 chars and concatenates MP3s
 - ElevenLabs resolves voice names to IDs via API
 - Inworld chunks at 2000 chars, uses Basic auth (JWT key:secret base64-encoded)
 
-## Raycast Integration
-
-`~/raycast-scripts/speakly.sh` — reads clipboard and launches Speakly in background. Mode: silent. Loads PATH for Homebrew + uv, service account token from macOS keychain.
-
 ## API Keys
 
-Secrets are managed via a **1Password service account** — no fingerprint prompts.
+API keys are stored in **macOS Keychain** via the `keyring` library. Run `speakly config` to set them up interactively, or set environment variables directly.
 
-- **Vault:** `Speakly` (dedicated vault with copies of the API keys)
-- **Service account:** "Speakly Local" — read-only access to the Speakly vault
-- **Token storage:** macOS keychain (`security find-generic-password -a speakly -s op-service-account-token -w`)
-- **Injection:** `OP_SERVICE_ACCOUNT_TOKEN=... op run --env-file=.env -- speakly "text"`
+| Env Var | Provider |
+|---------|----------|
+| `OPENAI_API_KEY` | OpenAI TTS + title generation |
+| `ELEVEN_API_KEY` | ElevenLabs |
+| `INWORLD_JWT_KEY` | Inworld |
+| `INWORLD_JWT_SECRET` | Inworld |
+| `ANTHROPIC_API_KEY` | Title generation (optional) |
 
-| Env Var | 1Password Reference |
-|---------|-------------------|
-| `OPENAI_API_KEY` | `op://Speakly/OpenAI/OPENAI_API_KEY` |
-| `ELEVEN_API_KEY` | `op://Speakly/ElevenLabs/ELEVEN_API_KEY` |
-| `INWORLD_JWT_KEY` | `op://Speakly/Inworld/INWORLD_JWT_KEY` |
-| `INWORLD_JWT_SECRET` | `op://Speakly/Inworld/INWORLD_JWT_SECRET` |
-| `ANTHROPIC_API_KEY` | `op://Speakly/Anthropic/ANTHROPIC_API_KEY` |
+Key resolution order: environment variable → keyring → not set.
+
+## Raycast Integration
+
+`~/raycast-scripts/speakly.sh` — reads clipboard and launches Speakly in background.
