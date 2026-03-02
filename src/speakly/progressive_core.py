@@ -235,7 +235,7 @@ class ProgressiveOrchestrator:
             self.callbacks.on_error("No text chunks were produced.")
             return
 
-        self.callbacks.on_status("Live generation mode")
+        self.callbacks.on_status("streaming")
         self._prepare_parts_dir()
 
         emitted_paths: list[Path] = []
@@ -289,7 +289,7 @@ class ProgressiveOrchestrator:
                         rate_limit_hits += 1
                         if rate_limit_hits >= RATE_LIMIT_FALLBACK_HITS and worker_limit > 1:
                             worker_limit = 1
-                            self.callbacks.on_status("Live generation mode (rate-limited)")
+                            self.callbacks.on_status("streaming (rate-limited)")
 
                     ready[result.index] = result
 
@@ -320,7 +320,7 @@ class ProgressiveOrchestrator:
 
         shutil.rmtree(self.parts_dir, ignore_errors=True)
         self.callbacks.on_done(self.output_path)
-        self.callbacks.on_status("Live generation complete.")
+        self.callbacks.on_status("complete")
 
     def _prepare_parts_dir(self) -> None:
         if self.parts_dir.exists():

@@ -231,6 +231,7 @@ def _launch_player(
         audio_path=audio_path,
         progressive_mode=progressive and audio_path is None,
         bench_exit=bench_exit,
+        provider=provider,
     )
 
     # Generate title in background

@@ -362,8 +362,15 @@ class MiniPlayer(QMainWindow):
 
     @pyqtSlot(str)
     def _on_progressive_status(self, status: str):
-        if self._progressive_mode and status:
-            self._set_status_text(status)
+        if not (self._progressive_mode and status):
+            return
+        # Map generic orchestrator keywords to provider-aware messages
+        status_map = {
+            "streaming": f"Streaming via {self._provider}",
+            "streaming (rate-limited)": f"Streaming via {self._provider} (rate-limited)",
+            "complete": f"Streaming complete ({self._provider})",
+        }
+        self._set_status_text(status_map.get(status, status))
 
     @pyqtSlot(str)
     def _on_progressive_error(self, message: str):
