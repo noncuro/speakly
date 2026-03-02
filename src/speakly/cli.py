@@ -12,13 +12,6 @@ from typing import Optional
 
 import typer
 
-# Debug logging to file
-logging.basicConfig(
-    filename="/tmp/speakly-debug.log",
-    level=logging.DEBUG,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    force=True,
-)
 log = logging.getLogger("speakly.cli")
 
 from speakly import bench
@@ -143,7 +136,6 @@ def main(
     log.info("=== Speakly invocation ===")
     log.info("Provider: %s | Voice: %s | Speed: %s", provider, voice, speed)
     log.info("Text length: %d chars", len(text))
-    log.info("Text preview: %.120s", text)
 
     # Check cache before launching player
     cached = get_cached(text, provider, voice or "default")

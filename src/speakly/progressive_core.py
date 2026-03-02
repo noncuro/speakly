@@ -235,8 +235,6 @@ class ProgressiveOrchestrator:
             max_chars=self.adapter.max_chunk_chars(),
         )
         log.info("Progressive run: %d chunks from %d chars", len(chunks), len(self.text))
-        for i, c in enumerate(chunks):
-            log.debug("  chunk[%d]: %d chars — %.80s", i, len(c), c)
         if not chunks:
             self.callbacks.on_error("No text chunks were produced.")
             return
