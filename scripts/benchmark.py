@@ -115,11 +115,23 @@ class AggResult:
 # ---------------------------------------------------------------------------
 
 
+def _default_voice(provider_name: str) -> str:
+    """Return sensible default voice for a provider."""
+    defaults = {
+        "edge": "en-US-AriaNeural",
+        "openai": "nova",
+        "elevenlabs": "Rachel",
+        "inworld": "Alex",
+    }
+    return defaults.get(provider_name, "default")
+
+
 def _run_full_file(provider_name: str, text: str, voice: str | None, speed: float) -> RunResult:
     """Benchmark a full-file synthesis call."""
     from speakly.providers import get_provider
 
     provider = get_provider(provider_name)
+    voice = voice or _default_voice(provider_name)
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
         out_path = Path(f.name)
 
@@ -143,6 +155,7 @@ def _run_progressive(provider_name: str, text: str, voice: str | None, speed: fl
     from speakly.progressive_core import ProgressiveCallbacks, ProgressiveOrchestrator
     from speakly.progressive_inworld import InworldProgressiveAdapter
 
+    voice = voice or _default_voice(provider_name)
     first_chunk_time: list[float] = []
     t0 = time.perf_counter()
 

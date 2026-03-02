@@ -134,12 +134,14 @@ class MiniPlayer(QMainWindow):
         audio_path: Path | None = None,
         progressive_mode: bool = False,
         bench_exit: bool = False,
+        provider: str = "edge",
     ):
         super().__init__()
         self._drag_pos = None
         self._loading = audio_path is None
         self._progressive_mode = progressive_mode
         self._bench_exit = bench_exit
+        self._provider = provider
         self._progressive_done_flag = False
         self._progressive_failed = False
         self._final_audio_loaded = False
@@ -206,6 +208,7 @@ class MiniPlayer(QMainWindow):
         self._duration_label.setFixedWidth(36)
 
         if self._loading and not self._progressive_mode:
+            self._status_label.setText(f"Generating via {self._provider}...")
             self._scrub_row.addWidget(self._status_label, stretch=1)
             self._scrub_row.addWidget(self._progress, stretch=2)
             self._time_label.hide()
@@ -214,7 +217,7 @@ class MiniPlayer(QMainWindow):
         else:
             self._progress.hide()
             if self._progressive_mode:
-                self._status_label.setText("Live generation mode")
+                self._status_label.setText(f"Streaming via {self._provider}...")
                 self._scrub_row.addWidget(self._status_label)
             else:
                 self._status_label.hide()
@@ -340,7 +343,7 @@ class MiniPlayer(QMainWindow):
             self._loading = False
             self._set_controls_enabled(True)
             self._load_and_play(path_str)
-            self._set_status_text("Live generation mode")
+            self._set_status_text(f"Streaming via {self._provider}")
             if self._bench_exit:
                 self._emit_bench_summary_and_exit()
             return
@@ -348,7 +351,7 @@ class MiniPlayer(QMainWindow):
         if self._waiting_for_chunk and self._player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
             self._waiting_for_chunk = False
             self._load_and_play(path_str)
-            self._set_status_text("Live generation mode")
+            self._set_status_text(f"Streaming via {self._provider}")
             return
 
         self._chunk_queue.append(path_str)
@@ -385,7 +388,7 @@ class MiniPlayer(QMainWindow):
 
         self._progressive_done_flag = True
         self._final_audio_path = path_str
-        self._set_status_text("Live generation complete.")
+        self._set_status_text(f"Streaming complete ({self._provider})")
 
         if self._should_switch_to_final_now():
             QTimer.singleShot(0, self._switch_to_final_audio)
@@ -430,7 +433,7 @@ class MiniPlayer(QMainWindow):
             next_path = self._chunk_queue.popleft()
             self._waiting_for_chunk = False
             self._load_and_play(next_path)
-            self._set_status_text("Live generation mode")
+            self._set_status_text(f"Streaming via {self._provider}")
             return
 
         if self._progressive_done_flag:
@@ -445,7 +448,7 @@ class MiniPlayer(QMainWindow):
 
         self._waiting_for_chunk = True
         bench.mark("buffering_wait")
-        self._set_status_text("Buffering next chunk...")
+        self._set_status_text(f"Buffering ({self._provider})...")
 
     def _emit_bench_summary_and_exit(self):
         """Emit JSON summary and quit (--bench-exit mode)."""
