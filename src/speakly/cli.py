@@ -222,9 +222,17 @@ def _launch_player(
     bench_exit: bool = False,
 ):
     from PyQt6.QtWidgets import QApplication
+
+    from speakly.dock import configure_dock_icon, configure_dock_name
     from speakly.player import MiniPlayer
 
+    configure_dock_name()  # Must be BEFORE QApplication()
+
     qt_app = QApplication(sys.argv)
+    qt_app.setApplicationName("Speakly")
+    qt_app.setApplicationDisplayName("Speakly")
+    configure_dock_icon()  # Must be AFTER QApplication()
+
     player = MiniPlayer(
         initial_title=initial_title,
         initial_speed=speed,

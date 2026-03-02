@@ -24,6 +24,7 @@ dependencies = [
     "edge-tts>=7.0",
     "keyring>=25.0",
     "rich>=13.0",
+    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
 ]
 
 [project.urls]
