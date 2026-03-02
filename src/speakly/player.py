@@ -341,8 +341,9 @@ class MiniPlayer(QMainWindow):
             return
 
         self._chunk_queue.append(path_str)
-        if self._waiting_for_chunk:
+        if self._waiting_for_chunk and not self._pending_advance:
             self._waiting_for_chunk = False
+            self._pending_advance = True
             QTimer.singleShot(0, self._advance_progressive_chunk)
 
     @pyqtSlot(str)
@@ -375,7 +376,7 @@ class MiniPlayer(QMainWindow):
         self._final_audio_path = path_str
         self._set_status_text("Live generation complete.")
 
-        if not self._loading and not self._chunk_queue and self._player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
+        if self._should_switch_to_final_now():
             QTimer.singleShot(0, self._switch_to_final_audio)
 
     def _load_and_play(self, path_str: str):
@@ -387,6 +388,18 @@ class MiniPlayer(QMainWindow):
         if self._status_label.isHidden() and self._progressive_mode:
             self._status_label.show()
         self._status_label.setText(text)
+
+    def _should_switch_to_final_now(self) -> bool:
+        """Only switch when playback naturally reached a chunk boundary."""
+        if self._loading or self._chunk_queue:
+            return False
+        if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            return False
+        if self._waiting_for_chunk:
+            return True
+        if self._player.mediaStatus() == QMediaPlayer.MediaStatus.EndOfMedia:
+            return True
+        return self._player.playbackState() == QMediaPlayer.PlaybackState.StoppedState
 
     def _switch_to_final_audio(self):
         if not self._progressive_mode or not self._final_audio_path:
