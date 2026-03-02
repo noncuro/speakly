@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtWidgets import (
@@ -120,11 +121,30 @@ QProgressBar::chunk {
 class MiniPlayer(QMainWindow):
     title_updated = pyqtSignal(str)
     audio_ready = pyqtSignal(str)
+    chunk_ready = pyqtSignal(str)
+    progressive_error = pyqtSignal(str)
+    progressive_done = pyqtSignal(str)
+    progressive_status = pyqtSignal(str)
 
-    def __init__(self, initial_title: str = "", initial_speed: float = 1.0, audio_path: Path | None = None):
+    def __init__(
+        self,
+        initial_title: str = "",
+        initial_speed: float = 1.0,
+        audio_path: Path | None = None,
+        progressive_mode: bool = False,
+    ):
         super().__init__()
         self._drag_pos = None
         self._loading = audio_path is None
+        self._progressive_mode = progressive_mode
+        self._progressive_done_flag = False
+        self._progressive_failed = False
+        self._final_audio_loaded = False
+        self._final_audio_path: str | None = None
+        self._chunk_queue: deque[str] = deque()
+        self._waiting_for_chunk = False
+        self._pending_advance = False
+
         self._speed_index = 0
         for i, s in enumerate(SPEEDS):
             if abs(s - initial_speed) < abs(SPEEDS[self._speed_index] - initial_speed):
@@ -140,21 +160,18 @@ class MiniPlayer(QMainWindow):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setStyleSheet(STYLE)
 
-        # Audio setup
         self._audio_output = QAudioOutput()
         self._audio_output.setVolume(0.8)
         self._player = QMediaPlayer()
         self._player.setAudioOutput(self._audio_output)
         self._player.setPlaybackRate(SPEEDS[self._speed_index])
 
-        # Build UI
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
         layout.setContentsMargins(16, 10, 16, 10)
         layout.setSpacing(6)
 
-        # Top row: title + close
         top_row = QHBoxLayout()
         self._title_label = QLabel(initial_title or "Speakly")
         self._title_label.setObjectName("title")
@@ -167,18 +184,14 @@ class MiniPlayer(QMainWindow):
         top_row.addWidget(close_btn)
         layout.addLayout(top_row)
 
-        # Scrub bar row — holds either progress bar (loading) or scrub slider (ready)
         self._scrub_row = QHBoxLayout()
-
-        # Loading indicator
         self._status_label = QLabel("Generating speech...")
         self._status_label.setObjectName("status")
         self._progress = QProgressBar()
-        self._progress.setRange(0, 0)  # indeterminate
+        self._progress.setRange(0, 0)
         self._progress.setFixedHeight(4)
         self._progress.setTextVisible(False)
 
-        # Scrub bar (hidden during loading)
         self._time_label = QLabel("0:00")
         self._time_label.setObjectName("time")
         self._time_label.setFixedWidth(36)
@@ -189,22 +202,25 @@ class MiniPlayer(QMainWindow):
         self._duration_label.setObjectName("time")
         self._duration_label.setFixedWidth(36)
 
-        if self._loading:
+        if self._loading and not self._progressive_mode:
             self._scrub_row.addWidget(self._status_label, stretch=1)
             self._scrub_row.addWidget(self._progress, stretch=2)
             self._time_label.hide()
             self._scrub.hide()
             self._duration_label.hide()
         else:
-            self._status_label.hide()
             self._progress.hide()
+            if self._progressive_mode:
+                self._status_label.setText("Live generation mode")
+                self._scrub_row.addWidget(self._status_label)
+            else:
+                self._status_label.hide()
             self._scrub_row.addWidget(self._time_label)
             self._scrub_row.addWidget(self._scrub, stretch=1)
             self._scrub_row.addWidget(self._duration_label)
 
         layout.addLayout(self._scrub_row)
 
-        # Controls row
         controls = QHBoxLayout()
         controls.setSpacing(8)
 
@@ -226,7 +242,6 @@ class MiniPlayer(QMainWindow):
 
         controls.addSpacing(12)
 
-        # Speed buttons
         self._speed_btns: list[QPushButton] = []
         for i, spd in enumerate(SPEEDS):
             label = f"{spd:.0f}x" if spd == int(spd) else f"{spd}x"
@@ -238,7 +253,6 @@ class MiniPlayer(QMainWindow):
 
         controls.addStretch()
 
-        # Volume
         vol = QSlider(Qt.Orientation.Horizontal)
         vol.setRange(0, 100)
         vol.setValue(80)
@@ -248,39 +262,53 @@ class MiniPlayer(QMainWindow):
 
         layout.addLayout(controls)
 
-        # Signals
         self._player.positionChanged.connect(self._on_position)
         self._player.durationChanged.connect(self._on_duration)
         self._player.playbackStateChanged.connect(self._on_state)
+        self._player.mediaStatusChanged.connect(self._on_media_status)
         self.title_updated.connect(self._set_title)
         self.audio_ready.connect(self._on_audio_ready)
+        self.chunk_ready.connect(self._on_chunk_ready)
+        self.progressive_error.connect(self._on_progressive_error)
+        self.progressive_done.connect(self._on_progressive_done)
+        self.progressive_status.connect(self._on_progressive_status)
 
         self._update_speed_buttons()
 
-        # Set loading/ready state
         if self._loading:
             self._set_controls_enabled(False)
         else:
             self._player.setSource(QUrl.fromLocalFile(str(audio_path)))
             self._player.play()
+            self._set_controls_enabled(True)
+
+        if self._progressive_mode:
+            self._scrub.setToolTip("Seeking unlocks after full audio is generated.")
+            self._scrub.setEnabled(False)
 
     def _set_controls_enabled(self, enabled: bool):
         self._play_btn.setEnabled(enabled)
         self._rew_btn.setEnabled(enabled)
         self._fwd_btn.setEnabled(enabled)
-        self._scrub.setEnabled(enabled)
+
+        scrub_enabled = enabled
+        if self._progressive_mode and not self._final_audio_loaded:
+            scrub_enabled = False
+            self._scrub.setToolTip("Seeking unlocks after full audio is generated.")
+        elif scrub_enabled:
+            self._scrub.setToolTip("")
+        self._scrub.setEnabled(scrub_enabled)
 
     @pyqtSlot(str)
     def _on_audio_ready(self, path_str: str):
-        self._loading = False
+        if self._progressive_mode:
+            return
 
-        # Swap loading indicator for scrub bar
+        self._loading = False
         self._status_label.hide()
         self._progress.hide()
-        # Remove loading widgets from layout
         self._scrub_row.removeWidget(self._status_label)
         self._scrub_row.removeWidget(self._progress)
-        # Add scrub widgets
         self._time_label.show()
         self._scrub.show()
         self._duration_label.show()
@@ -288,15 +316,110 @@ class MiniPlayer(QMainWindow):
         self._scrub_row.addWidget(self._scrub, stretch=1)
         self._scrub_row.addWidget(self._duration_label)
 
-        # Enable controls and load audio
         self._set_controls_enabled(True)
         self._player.setSource(QUrl.fromLocalFile(path_str))
         self._player.setPlaybackRate(SPEEDS[self._speed_index])
         self._player.play()
 
-    def load_audio(self, path: Path):
-        """Thread-safe — call from any thread to signal audio is ready."""
-        self.audio_ready.emit(str(path))
+    @pyqtSlot(str)
+    def _on_chunk_ready(self, path_str: str):
+        if not self._progressive_mode:
+            self._on_audio_ready(path_str)
+            return
+
+        if self._loading:
+            self._loading = False
+            self._set_controls_enabled(True)
+            self._load_and_play(path_str)
+            self._set_status_text("Live generation mode")
+            return
+
+        if self._waiting_for_chunk and self._player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
+            self._waiting_for_chunk = False
+            self._load_and_play(path_str)
+            self._set_status_text("Live generation mode")
+            return
+
+        self._chunk_queue.append(path_str)
+        if self._waiting_for_chunk:
+            self._waiting_for_chunk = False
+            QTimer.singleShot(0, self._advance_progressive_chunk)
+
+    @pyqtSlot(str)
+    def _on_progressive_status(self, status: str):
+        if self._progressive_mode and status:
+            self._set_status_text(status)
+
+    @pyqtSlot(str)
+    def _on_progressive_error(self, message: str):
+        if not self._progressive_mode:
+            return
+
+        self._progressive_failed = True
+        self._set_status_text(f"Error: {message}")
+        self._title_label.setText(f"Error: {message}")
+
+        if self._loading:
+            self._set_controls_enabled(False)
+            return
+
+        if not self._chunk_queue and self._player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
+            self._player.stop()
+
+    @pyqtSlot(str)
+    def _on_progressive_done(self, path_str: str):
+        if not self._progressive_mode:
+            return
+
+        self._progressive_done_flag = True
+        self._final_audio_path = path_str
+        self._set_status_text("Live generation complete.")
+
+        if not self._loading and not self._chunk_queue and self._player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
+            QTimer.singleShot(0, self._switch_to_final_audio)
+
+    def _load_and_play(self, path_str: str):
+        self._player.setSource(QUrl.fromLocalFile(path_str))
+        self._player.setPlaybackRate(SPEEDS[self._speed_index])
+        self._player.play()
+
+    def _set_status_text(self, text: str):
+        if self._status_label.isHidden() and self._progressive_mode:
+            self._status_label.show()
+        self._status_label.setText(text)
+
+    def _switch_to_final_audio(self):
+        if not self._progressive_mode or not self._final_audio_path:
+            return
+        self._player.setSource(QUrl.fromLocalFile(self._final_audio_path))
+        self._player.setPlaybackRate(SPEEDS[self._speed_index])
+        self._final_audio_loaded = True
+        self._set_controls_enabled(True)
+
+    def _advance_progressive_chunk(self):
+        self._pending_advance = False
+        if not self._progressive_mode:
+            return
+
+        if self._chunk_queue:
+            next_path = self._chunk_queue.popleft()
+            self._waiting_for_chunk = False
+            self._load_and_play(next_path)
+            self._set_status_text("Live generation mode")
+            return
+
+        if self._progressive_done_flag:
+            self._switch_to_final_audio()
+            return
+
+        if self._progressive_failed:
+            self._waiting_for_chunk = False
+            self._player.stop()
+            self._set_status_text("Generation failed.")
+            return
+
+        self._waiting_for_chunk = True
+        self._set_status_text("Buffering next chunk...")
 
     def _toggle_play(self):
         if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
@@ -333,6 +456,17 @@ class MiniPlayer(QMainWindow):
         self._scrub.setValue(pos)
         self._time_label.setText(self._fmt(pos))
 
+        if (
+            self._progressive_mode
+            and not self._progressive_done_flag
+            and self._chunk_queue
+            and not self._pending_advance
+            and self._player.duration() > 0
+            and pos >= max(0, self._player.duration() - 120)
+        ):
+            self._pending_advance = True
+            QTimer.singleShot(40, self._advance_progressive_chunk)
+
     def _on_duration(self, dur: int):
         self._scrub.setRange(0, dur)
         self._duration_label.setText(self._fmt(dur))
@@ -343,12 +477,16 @@ class MiniPlayer(QMainWindow):
         else:
             self._play_btn.setText("\u25b6")
 
+    def _on_media_status(self, status):
+        if status == QMediaPlayer.MediaStatus.EndOfMedia and self._progressive_mode and not self._pending_advance:
+            self._pending_advance = True
+            QTimer.singleShot(40, self._advance_progressive_chunk)
+
     @staticmethod
     def _fmt(ms: int) -> str:
         s = ms // 1000
         return f"{s // 60}:{s % 60:02d}"
 
-    # Dragging
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -363,8 +501,29 @@ class MiniPlayer(QMainWindow):
     def closeEvent(self, event):
         self._player.stop()
         from PyQt6.QtWidgets import QApplication
+
         QApplication.instance().quit()
 
     def update_title(self, title: str):
         """Thread-safe title update — emits signal to update on GUI thread."""
         self.title_updated.emit(title)
+
+    def load_audio(self, path: Path):
+        """Thread-safe full-file load signal."""
+        self.audio_ready.emit(str(path))
+
+    def queue_chunk(self, path: Path):
+        """Thread-safe progressive chunk enqueue."""
+        self.chunk_ready.emit(str(path))
+
+    def set_progressive_status(self, status: str):
+        """Thread-safe progressive status update."""
+        self.progressive_status.emit(status)
+
+    def set_progressive_error(self, message: str):
+        """Thread-safe progressive error signal."""
+        self.progressive_error.emit(message)
+
+    def mark_progressive_done(self, path: Path):
+        """Thread-safe progressive completion signal."""
+        self.progressive_done.emit(str(path))

@@ -11,7 +11,7 @@ from typing import Optional
 import typer
 
 # Import providers to trigger registration
-from speakly.providers import get_provider, list_providers
+from speakly.providers import get_provider
 import speakly.providers.edge  # always available (free, no API key)
 
 try:
@@ -29,6 +29,8 @@ except ImportError:
 
 from speakly.cache import cache_path, evict_old, get_cached
 from speakly.config import load_config
+from speakly.progressive_core import PROGRESSIVE_MIN_CHARS, ProgressiveCallbacks, ProgressiveOrchestrator
+from speakly.progressive_inworld import InworldProgressiveAdapter
 from speakly.titler import generate_title
 
 app = typer.Typer(
@@ -124,6 +126,7 @@ def main(
 
     # Check cache before launching player
     cached = get_cached(text, provider, voice or "default")
+    progressive = _should_use_progressive(provider=provider, text=text, cached_path=cached)
 
     # Launch player immediately — with audio if cached, in loading state if not
     _launch_player(
@@ -134,10 +137,15 @@ def main(
         provider=provider,
         voice=voice,
         llm=cfg.llm,
+        progressive=progressive,
     )
 
 
-def _generate_audio(provider: str, voice: str, speed: float, text: str, player):
+def _should_use_progressive(provider: str, text: str, cached_path: Path | None) -> bool:
+    return provider == "inworld" and cached_path is None and len(text) >= PROGRESSIVE_MIN_CHARS
+
+
+def _generate_audio(provider: str, voice: str | None, speed: float, text: str, player):
     """Run TTS generation in background thread, then signal player."""
     try:
         p = get_provider(provider)
@@ -151,28 +159,66 @@ def _generate_audio(provider: str, voice: str, speed: float, text: str, player):
     evict_old()
 
 
+def _generate_audio_progressive(provider: str, voice: str | None, speed: float, text: str, player):
+    """Run progressive synthesis and stream chunks into the player."""
+    try:
+        if provider != "inworld":
+            _generate_audio(provider, voice, speed, text, player)
+            return
+
+        output_path = cache_path(text, provider, voice or "default")
+        adapter = InworldProgressiveAdapter()
+        callbacks = ProgressiveCallbacks(
+            on_chunk_ready=player.queue_chunk,
+            on_status=player.set_progressive_status,
+            on_done=player.mark_progressive_done,
+            on_error=player.set_progressive_error,
+        )
+        orchestrator = ProgressiveOrchestrator(
+            adapter=adapter,
+            text=text,
+            voice=voice or "",
+            speed=speed,
+            output_path=output_path,
+            callbacks=callbacks,
+        )
+        orchestrator.run()
+    except Exception as e:
+        player.set_progressive_error(str(e))
+        player.update_title(f"Error: {e}")
+
+    evict_old()
+
+
 def _launch_player(
     initial_title: str,
     full_text: str,
     speed: float,
     audio_path: Path | None,
     provider: str,
-    voice: str,
+    voice: str | None,
     llm: str = "none",
+    progressive: bool = False,
 ):
     from PyQt6.QtWidgets import QApplication
     from speakly.player import MiniPlayer
 
     qt_app = QApplication(sys.argv)
-    player = MiniPlayer(initial_title=initial_title, initial_speed=speed, audio_path=audio_path)
+    player = MiniPlayer(
+        initial_title=initial_title,
+        initial_speed=speed,
+        audio_path=audio_path,
+        progressive_mode=progressive and audio_path is None,
+    )
 
     # Generate title in background
     generate_title(full_text, player.update_title, llm=llm)
 
     # If no cached audio, generate in background thread
     if audio_path is None:
+        target = _generate_audio_progressive if progressive else _generate_audio
         thread = threading.Thread(
-            target=_generate_audio,
+            target=target,
             args=(provider, voice, speed, full_text, player),
             daemon=True,
         )
