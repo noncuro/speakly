@@ -282,6 +282,20 @@ def _launch_player(
         provider=provider,
     )
 
+    # macOS Now Playing integration (media keys + Control Center widget)
+    from speakly.nowplaying import create_bridge
+
+    now_playing = create_bridge(
+        on_play=player.play,
+        on_pause=player.pause,
+        on_toggle=player._toggle_play,
+        on_skip_forward=lambda: player._skip(10000),
+        on_skip_backward=lambda: player._skip(-10000),
+        on_seek=player.seek_to_seconds,
+    )
+    if now_playing:
+        player.set_now_playing(now_playing)
+
     # Generate title in background
     generate_title(full_text, player.update_title, llm=llm)
 

@@ -25,6 +25,7 @@ dependencies = [
     "keyring>=25.0",
     "rich>=13.0",
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-MediaPlayer>=10.0; sys_platform == 'darwin'",
 ]
 
 [project.urls]

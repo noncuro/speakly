@@ -138,6 +138,8 @@ class MiniPlayer(QMainWindow):
     ):
         super().__init__()
         self._drag_pos = None
+        self._now_playing = None
+        self._last_np_update_secs = -10
         self._loading = audio_path is None
         self._progressive_mode = progressive_mode
         self._bench_exit = bench_exit
@@ -487,6 +489,25 @@ class MiniPlayer(QMainWindow):
         else:
             self._player.play()
 
+    def play(self):
+        """Public play — for external callers (e.g. Now Playing bridge)."""
+        if self._player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
+            self._player.play()
+
+    def pause(self):
+        """Public pause — for external callers."""
+        if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self._player.pause()
+
+    def seek_to_seconds(self, seconds: float):
+        """Seek to absolute position in seconds — for Now Playing scrub."""
+        ms = max(0, int(seconds * 1000))
+        self._player.setPosition(min(ms, self._player.duration()))
+
+    def set_now_playing(self, bridge):
+        """Wire up Now Playing bridge to receive state updates."""
+        self._now_playing = bridge
+
     def _skip(self, ms: int):
         if self._progressive_mode and not self._final_audio_loaded:
             # During chunked playback, constrain skip to current chunk boundaries
@@ -506,6 +527,13 @@ class MiniPlayer(QMainWindow):
         self._speed_index = idx
         self._player.setPlaybackRate(SPEEDS[idx])
         self._update_speed_buttons()
+        if self._now_playing:
+            playing = self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+            self._now_playing.update_info(
+                rate=SPEEDS[idx],
+                playing=playing,
+                elapsed=self._player.position() / 1000.0,
+            )
 
     def _update_speed_buttons(self):
         for i, btn in enumerate(self._speed_btns):
@@ -519,6 +547,8 @@ class MiniPlayer(QMainWindow):
     @pyqtSlot(str)
     def _set_title(self, title: str):
         self._title_label.setText(title)
+        if self._now_playing:
+            self._now_playing.update_info(title=title)
 
     def _on_position(self, pos: int):
         if self._progressive_mode and not self._final_audio_loaded:
@@ -529,6 +559,14 @@ class MiniPlayer(QMainWindow):
         else:
             self._scrub.setValue(pos)
             self._time_label.setText(self._fmt(pos))
+
+        # Update Now Playing elapsed time (throttled to ~5s intervals)
+        if self._now_playing and self._player.duration() > 0:
+            effective_pos = (self._cumulative_offset_ms + pos) if (self._progressive_mode and not self._final_audio_loaded) else pos
+            secs = effective_pos // 1000
+            if abs(secs - self._last_np_update_secs) >= 5:
+                self._last_np_update_secs = secs
+                self._now_playing.update_info(elapsed=effective_pos / 1000.0)
 
         # Near-end detection uses chunk-local position/duration, not cumulative
         if (
@@ -551,15 +589,30 @@ class MiniPlayer(QMainWindow):
             # Scrub range grows as new chunks arrive
             self._scrub.setRange(0, self._total_known_duration_ms)
             self._duration_label.setText(self._fmt(self._total_known_duration_ms))
+            if self._now_playing:
+                self._now_playing.update_info(duration=self._total_known_duration_ms / 1000.0)
         else:
             self._scrub.setRange(0, dur)
             self._duration_label.setText(self._fmt(dur))
+            if self._now_playing:
+                self._now_playing.update_info(duration=dur / 1000.0)
 
     def _on_state(self, state):
         if state == QMediaPlayer.PlaybackState.PlayingState:
             self._play_btn.setText("\u23f8")
+            if self._now_playing:
+                self._now_playing.update_info(
+                    playing=True,
+                    rate=SPEEDS[self._speed_index],
+                    elapsed=self._player.position() / 1000.0,
+                )
         else:
             self._play_btn.setText("\u25b6")
+            if self._now_playing:
+                self._now_playing.update_info(
+                    playing=False,
+                    elapsed=self._player.position() / 1000.0,
+                )
 
     def _on_media_status(self, status):
         if status == QMediaPlayer.MediaStatus.EndOfMedia and self._progressive_mode and not self._pending_advance:
@@ -593,6 +646,8 @@ class MiniPlayer(QMainWindow):
         self._drag_pos = None
 
     def closeEvent(self, event):
+        if self._now_playing:
+            self._now_playing.clear()
         self._player.stop()
         from PyQt6.QtWidgets import QApplication
 
