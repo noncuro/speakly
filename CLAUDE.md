@@ -102,6 +102,14 @@ API keys are stored in **macOS Keychain** via the `keyring` library. Run `speakl
 
 Key resolution order: environment variable → keyring → not set.
 
+## Global Install
+
+Speakly is installed globally via `uv tool install --editable .`. After merging new changes to main, refresh the global install:
+
+```bash
+uv tool install --editable . --force
+```
+
 ## Raycast Integration
 
-`~/raycast-scripts/speakly.sh` — reads clipboard and launches Speakly in background.
+`~/raycast-scripts/speakly.sh` — reads highlighted text (falls back to clipboard) and launches Speakly in background.
