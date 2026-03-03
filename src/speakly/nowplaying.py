@@ -58,9 +58,9 @@ class NowPlayingBridge:
 
         cmd.changePlaybackPositionCommand().addTargetWithHandler_(self._handle_seek)
 
-        # Disable track navigation (not applicable for single-item player)
-        cmd.nextTrackCommand().setEnabled_(False)
-        cmd.previousTrackCommand().setEnabled_(False)
+        # Map next/previous track (keyboard F7/F9) to skip as well
+        cmd.nextTrackCommand().addTargetWithHandler_(self._handle_skip_forward)
+        cmd.previousTrackCommand().addTargetWithHandler_(self._handle_skip_backward)
 
     def _handle_play(self, event):
         self._on_play()
@@ -135,6 +135,8 @@ class NowPlayingBridge:
         cmd.togglePlayPauseCommand().removeTarget_(None)
         cmd.skipForwardCommand().removeTarget_(None)
         cmd.skipBackwardCommand().removeTarget_(None)
+        cmd.nextTrackCommand().removeTarget_(None)
+        cmd.previousTrackCommand().removeTarget_(None)
         cmd.changePlaybackPositionCommand().removeTarget_(None)
 
         self._info_center.setNowPlayingInfo_(None)
