@@ -126,8 +126,16 @@ class NowPlayingBridge:
             self._info_center.setPlaybackState_(state)
 
     def clear(self):
-        """Remove from Now Playing on close."""
+        """Remove from Now Playing and unregister command handlers."""
         from MediaPlayer import MPMusicPlaybackStatePaused
+
+        cmd = self._cmd_center
+        cmd.playCommand().removeTarget_(None)
+        cmd.pauseCommand().removeTarget_(None)
+        cmd.togglePlayPauseCommand().removeTarget_(None)
+        cmd.skipForwardCommand().removeTarget_(None)
+        cmd.skipBackwardCommand().removeTarget_(None)
+        cmd.changePlaybackPositionCommand().removeTarget_(None)
 
         self._info_center.setNowPlayingInfo_(None)
         self._info_center.setPlaybackState_(MPMusicPlaybackStatePaused)
