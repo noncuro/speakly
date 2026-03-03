@@ -150,6 +150,12 @@ class MiniPlayer(QMainWindow):
         self._waiting_for_chunk = False
         self._pending_advance = False
 
+        # Cumulative scrub tracking for progressive mode
+        self._cumulative_offset_ms: int = 0
+        self._total_known_duration_ms: int = 0
+        self._current_chunk_duration_ms: int = 0
+        self._final_seek_target_ms: int = 0
+
         self._speed_index = 0
         for i, s in enumerate(SPEEDS):
             if abs(s - initial_speed) < abs(SPEEDS[self._speed_index] - initial_speed):
@@ -426,6 +432,10 @@ class MiniPlayer(QMainWindow):
         if not self._progressive_mode or not self._final_audio_path:
             return
         bench.mark("final_audio_switch")
+
+        # Remember the cumulative position so we can seek after the final audio loads
+        self._final_seek_target_ms = self._cumulative_offset_ms
+
         self._player.setSource(QUrl.fromLocalFile(self._final_audio_path))
         self._player.setPlaybackRate(SPEEDS[self._speed_index])
         self._final_audio_loaded = True
@@ -435,6 +445,10 @@ class MiniPlayer(QMainWindow):
         self._pending_advance = False
         if not self._progressive_mode:
             return
+
+        # Use actual played position (not full chunk duration) to avoid ~120ms drift
+        # from near-end prefetch triggering before chunk fully finishes
+        self._cumulative_offset_ms += self._player.position()
 
         if self._chunk_queue:
             next_path = self._chunk_queue.popleft()
@@ -474,10 +488,18 @@ class MiniPlayer(QMainWindow):
             self._player.play()
 
     def _skip(self, ms: int):
+        if self._progressive_mode and not self._final_audio_loaded:
+            # During chunked playback, constrain skip to current chunk boundaries
+            pos = max(0, self._player.position() + ms)
+            self._player.setPosition(min(pos, max(0, self._player.duration() - 1)))
+            return
         pos = max(0, self._player.position() + ms)
         self._player.setPosition(min(pos, self._player.duration()))
 
     def _seek(self, pos: int):
+        if self._progressive_mode and not self._final_audio_loaded:
+            # Seeking into previous chunks is not supported during progressive playback
+            return
         self._player.setPosition(pos)
 
     def _set_speed(self, idx: int):
@@ -499,9 +521,16 @@ class MiniPlayer(QMainWindow):
         self._title_label.setText(title)
 
     def _on_position(self, pos: int):
-        self._scrub.setValue(pos)
-        self._time_label.setText(self._fmt(pos))
+        if self._progressive_mode and not self._final_audio_loaded:
+            # Show cumulative position across all chunks
+            cumulative_pos = self._cumulative_offset_ms + pos
+            self._scrub.setValue(cumulative_pos)
+            self._time_label.setText(self._fmt(cumulative_pos))
+        else:
+            self._scrub.setValue(pos)
+            self._time_label.setText(self._fmt(pos))
 
+        # Near-end detection uses chunk-local position/duration, not cumulative
         if (
             self._progressive_mode
             and not self._progressive_done_flag
@@ -514,8 +543,17 @@ class MiniPlayer(QMainWindow):
             QTimer.singleShot(40, self._advance_progressive_chunk)
 
     def _on_duration(self, dur: int):
-        self._scrub.setRange(0, dur)
-        self._duration_label.setText(self._fmt(dur))
+        if self._progressive_mode and not self._final_audio_loaded:
+            # Store the current chunk's duration for later offset calculation
+            self._current_chunk_duration_ms = dur
+            # Update total known duration: offset of previous chunks + this chunk
+            self._total_known_duration_ms = self._cumulative_offset_ms + dur
+            # Scrub range grows as new chunks arrive
+            self._scrub.setRange(0, self._total_known_duration_ms)
+            self._duration_label.setText(self._fmt(self._total_known_duration_ms))
+        else:
+            self._scrub.setRange(0, dur)
+            self._duration_label.setText(self._fmt(dur))
 
     def _on_state(self, state):
         if state == QMediaPlayer.PlaybackState.PlayingState:
@@ -527,6 +565,16 @@ class MiniPlayer(QMainWindow):
         if status == QMediaPlayer.MediaStatus.EndOfMedia and self._progressive_mode and not self._pending_advance:
             self._pending_advance = True
             QTimer.singleShot(40, self._advance_progressive_chunk)
+
+        # When final audio finishes loading, seek to where chunked playback left off
+        if (
+            status == QMediaPlayer.MediaStatus.LoadedMedia
+            and self._final_audio_loaded
+            and self._final_seek_target_ms > 0
+        ):
+            seek_pos = self._final_seek_target_ms
+            self._final_seek_target_ms = 0  # Clear so we don't re-seek
+            self._player.setPosition(seek_pos)
 
     @staticmethod
     def _fmt(ms: int) -> str:
