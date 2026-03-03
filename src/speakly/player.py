@@ -356,8 +356,6 @@ class MiniPlayer(QMainWindow):
 
         if self._waiting_for_chunk and self._player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
             self._waiting_for_chunk = False
-            # Add finished chunk's duration to cumulative offset before loading next
-            self._cumulative_offset_ms += self._current_chunk_duration_ms
             self._load_and_play(path_str)
             self._set_status_text(f"Streaming via {self._provider}")
             return
@@ -448,8 +446,9 @@ class MiniPlayer(QMainWindow):
         if not self._progressive_mode:
             return
 
-        # Add finished chunk's duration to cumulative offset before moving on
-        self._cumulative_offset_ms += self._current_chunk_duration_ms
+        # Use actual played position (not full chunk duration) to avoid ~120ms drift
+        # from near-end prefetch triggering before chunk fully finishes
+        self._cumulative_offset_ms += self._player.position()
 
         if self._chunk_queue:
             next_path = self._chunk_queue.popleft()
